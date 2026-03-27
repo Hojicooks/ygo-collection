@@ -23,7 +23,7 @@ jobs:
         run: flutter pub get
 
       - name: Generate iOS project files
-        run: flutter create --platforms=ios .
+        run: flutter create --platforms=ios --org com.hojicooks --project-name ygo_collection .
 
       - name: Build iOS (no codesign)
         run: flutter build ios --release --no-codesign

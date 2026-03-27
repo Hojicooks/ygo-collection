@@ -25,21 +25,20 @@ jobs:
       - name: Generate iOS project files
         run: flutter create --platforms=ios --org com.hojicooks --project-name ygo_collection .
 
-      - name: Build iOS archive
+      - name: Disable code signing
         run: |
           cd ios
-          xcodebuild -workspace Runner.xcworkspace \
-            -scheme Runner \
-            -configuration Release \
-            -sdk iphoneos \
-            -archivePath build/Runner.xcarchive \
-            CODE_SIGNING_ALLOWED=NO \
-            archive
+          sed -i '' 's/DEVELOPMENT_TEAM = .*/DEVELOPMENT_TEAM = "";/' Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/CODE_SIGN_IDENTITY = .*/CODE_SIGN_IDENTITY = "";/' Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/CODE_SIGN_STYLE = Automatic/CODE_SIGN_STYLE = Manual/' Runner.xcodeproj/project.pbxproj
+
+      - name: Build iOS (no codesign)
+        run: flutter build ios --release --no-codesign
 
       - name: Create IPA
         run: |
           mkdir -p Payload
-          cp -r ios/build/Runner.xcarchive/Products/Applications/Runner.app Payload/Runner.app
+          cp -r build/ios/iphoneos/Runner.app Payload/Runner.app
           zip -r YGOCollection.ipa Payload
           rm -rf Payload
 

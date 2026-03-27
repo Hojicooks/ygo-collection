@@ -2,7 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:flutter_vision/flutter_vision.dart';
 import '../services/ygo_api_service.dart';
 import '../services/database_service.dart';
 import '../models/card_model.dart';
@@ -18,7 +18,6 @@ class ScannerScreen extends StatefulWidget {
 
 class _ScannerScreenState extends State<ScannerScreen> {
   CameraController? _cameraController;
-  final _textRecognizer = TextRecognizer();
   final _apiService = YgoApiService();
   final _dbService = DatabaseService();
   final _searchController = TextEditingController();
@@ -56,35 +55,30 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
   // Lance le scan OCR sur une image de la caméra
   Future<void> _captureAndScan() async {
-    if (_isProcessing || _cameraController == null) return;
-    setState(() {
-      _isProcessing = true;
-      _errorMessage = null;
-    });
+  if (_isProcessing || _cameraController == null) return;
+  setState(() { _isProcessing = true; _errorMessage = null; });
 
-    try {
-      final image = await _cameraController!.takePicture();
-      final inputImage = InputImage.fromFilePath(image.path);
-      final recognized = await _textRecognizer.processImage(inputImage);
-
-      String? detectedCode;
-      for (final block in recognized.blocks) {
-        final match = _setCodeRegex.firstMatch(block.text.toUpperCase());
-        if (match != null) {
-          detectedCode = match.group(0);
-          break;
-        }
-      }
-
-      if (detectedCode != null) {
-        await _searchCard(detectedCode);
-      } else {
-        setState(() => _errorMessage = 'Aucun code de set détecté. Essayez de vous rapprocher.');
-      }
-    } finally {
-      setState(() => _isProcessing = false);
+  try {
+    final image = await _cameraController!.takePicture();
+    // OCR via flutter_vision
+    final FlutterVision vision = FlutterVision();
+    await vision.startOcrOnImage(
+      imagePath: image.path,
+      language: 'fra',
+    );
+    final result = await vision.getOcrResult();
+    final text = result.map((r) => r['text']).join(' ');
+    
+    final match = _setCodeRegex.firstMatch(text.toUpperCase());
+    if (match != null) {
+      await _searchCard(match.group(0)!);
+    } else {
+      setState(() => _errorMessage = 'Aucun code de set détecté. Essayez de vous rapprocher.');
     }
+  } finally {
+    setState(() => _isProcessing = false);
   }
+}
 
   // Recherche une carte par code
   Future<void> _searchCard(String code) async {

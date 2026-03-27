@@ -25,7 +25,16 @@ jobs:
       - name: Generate iOS project files
         run: flutter create --platforms=ios --org com.hojicooks --project-name ygo_collection .
 
-      - name: Build iOS debug (for AltStore signing)
+      - name: Add camera permission to Info.plist
+        run: |
+          plutil -insert NSCameraUsageDescription \
+            -string "Nécessaire pour scanner les codes de set Yu-Gi-Oh" \
+            ios/Runner/Info.plist
+          plutil -insert NSPhotoLibraryUsageDescription \
+            -string "Pour importer des photos de cartes" \
+            ios/Runner/Info.plist
+
+      - name: Build iOS debug
         run: flutter build ios --debug --no-codesign
 
       - name: Create IPA

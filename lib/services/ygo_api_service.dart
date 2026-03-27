@@ -1,7 +1,6 @@
-// lib/services/ygo_api_service.dart
-
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:html/html.dart' as html_parser;
 import '../models/card_model.dart';
 
 class YgoApiService {
@@ -9,23 +8,31 @@ class YgoApiService {
 
   Future<YgoCard?> searchBySetCode(String setCode) async {
     try {
-      // Recherche directement par code de set exact
-      final url = Uri.parse('$_baseUrl/cardinfo.php?cardset=${Uri.encodeComponent(setCode)}');
-      final response = await http.get(url).timeout(const Duration(seconds: 10));
+      final parts = setCode.toUpperCase().split('-');
+      if (parts.length < 2) return null;
+      final setPrefix = parts[0];
+      final cardNum = parts.last.replaceAll(RegExp(r'[A-Z]'), '');
 
+      final url = Uri.parse('$_baseUrl/cardinfo.php?cardset=${Uri.encodeComponent(setPrefix)}');
+      final response = await http.get(url).timeout(const Duration(seconds: 10));
       if (response.statusCode != 200) return null;
 
       final data = jsonDecode(response.body);
       final cards = data['data'] as List<dynamic>;
-      if (cards.isEmpty) return null;
 
-      // Cherche la carte dont un variant correspond au code exact
       for (final cardJson in cards) {
         final card = YgoCard.fromJson(cardJson);
-        final matching = card.variants
-            .where((v) => v.setCode.toUpperCase() == setCode.toUpperCase())
-            .toList();
+        final matching = card.variants.where((v) {
+          final vNum = v.setCode.replaceAll(RegExp(r'[A-Z\-]'), '');
+          return vNum == cardNum;
+        }).toList();
+
         if (matching.isNotEmpty) {
+          // Récupère le prix Cardmarket FR via scraping
+          final setName = matching.first.setName;
+          final price = await fetchCardmarketPrice(card.name, setName);
+          for (final v in matching) { v.price = price ?? 0; }
+
           return YgoCard(
             id: card.id,
             name: card.name,
@@ -41,25 +48,7 @@ class YgoApiService {
           );
         }
       }
-
-      // Fallback : retourne la première carte avec toutes ses variantes FR
-      final first = YgoCard.fromJson(cards.first);
-      final frVariants = first.variants
-          .where((v) => v.setCode.toUpperCase().contains('FR'))
-          .toList();
-      return YgoCard(
-        id: first.id,
-        name: first.name,
-        type: first.type,
-        desc: first.desc,
-        race: first.race,
-        attribute: first.attribute,
-        level: first.level,
-        atk: first.atk,
-        def: first.def,
-        imageUrl: first.imageUrl,
-        variants: frVariants.isNotEmpty ? frVariants : first.variants,
-      );
+      return null;
     } catch (e) {
       return null;
     }
@@ -80,20 +69,49 @@ class YgoApiService {
     }
   }
 
-  // Prix depuis YGOPRODeck (déjà inclus dans les variants)
-  Future<double?> fetchCardmarketPrice(String cardName, String setCode) async {
+  Future<double?> fetchCardmarketPrice(String cardName, String setName) async {
     try {
-      final url = Uri.parse('$_baseUrl/cardinfo.php?name=${Uri.encodeComponent(cardName)}');
-      final response = await http.get(url).timeout(const Duration(seconds: 10));
+      // Convertit les noms en format URL Cardmarket
+      final setSlug = setName
+          .replaceAll(RegExp(r'[^a-zA-Z0-9 ]'), '')
+          .trim()
+          .split(' ')
+          .map((w) => w.isNotEmpty ? w[0].toUpperCase() + w.substring(1) : '')
+          .join('-');
+
+      final cardSlug = cardName
+          .replaceAll(RegExp(r'[^a-zA-Z0-9 ]'), '')
+          .trim()
+          .split(' ')
+          .map((w) => w.isNotEmpty ? w[0].toUpperCase() + w.substring(1) : '')
+          .join('-');
+
+      final url = Uri.parse(
+        'https://www.cardmarket.com/fr/YuGiOh/Products/Singles/$setSlug/$cardSlug?language=2&minCondition=3'
+      );
+
+      final response = await http.get(url, headers: {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
+        'Accept-Language': 'fr-FR,fr;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml',
+      }).timeout(const Duration(seconds: 15));
+
       if (response.statusCode != 200) return null;
-      final data = jsonDecode(response.body);
-      final cards = data['data'] as List<dynamic>;
-      if (cards.isEmpty) return null;
-      final card = YgoCard.fromJson(cards.first);
-      final variant = card.variants
-          .where((v) => v.setCode.toUpperCase() == setCode.toUpperCase())
-          .firstOrNull;
-      return variant?.price;
+
+      final document = html_parser.parse(response.body);
+
+      // Sélecteur du prix : span avec les classes Cardmarket
+      final priceEl = document.querySelector(
+        'span.color-primary.small.text-end.text-nowrap.fw-bold'
+      );
+
+      if (priceEl == null) return null;
+
+      final priceText = priceEl.text
+          .replaceAll(RegExp(r'[^\d,.]'), '')
+          .replaceAll(',', '.');
+
+      return double.tryParse(priceText);
     } catch (e) {
       return null;
     }

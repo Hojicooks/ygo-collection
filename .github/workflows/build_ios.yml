@@ -25,15 +25,8 @@ jobs:
       - name: Generate iOS project files
         run: flutter create --platforms=ios --org com.hojicooks --project-name ygo_collection .
 
-      - name: Disable code signing
-        run: |
-          cd ios
-          sed -i '' 's/DEVELOPMENT_TEAM = .*/DEVELOPMENT_TEAM = "";/' Runner.xcodeproj/project.pbxproj
-          sed -i '' 's/CODE_SIGN_IDENTITY = .*/CODE_SIGN_IDENTITY = "";/' Runner.xcodeproj/project.pbxproj
-          sed -i '' 's/CODE_SIGN_STYLE = Automatic/CODE_SIGN_STYLE = Manual/' Runner.xcodeproj/project.pbxproj
-
-      - name: Build iOS (no codesign)
-        run: flutter build ios --release --no-codesign
+      - name: Build iOS debug (for AltStore signing)
+        run: flutter build ios --debug --no-codesign
 
       - name: Create IPA
         run: |

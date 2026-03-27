@@ -33,7 +33,6 @@ class YgoCard {
     final sets = (json['card_sets'] as List<dynamic>? ?? [])
         .map((s) => CardVariant.fromJson(s))
         .toList();
-
     return YgoCard(
       id: json['id'],
       name: json['name'],
@@ -77,21 +76,15 @@ class CardVariant {
 
   Color get rarityColor {
     switch (rarityCode.toUpperCase()) {
-      case 'ScR':
-        return const Color(0xFFD4537E);
-      case 'UR':
-        return const Color(0xFF5340C9);
-      case 'SR':
-        return const Color(0xFF1D9E75);
-      case 'R':
-        return const Color(0xFFBA7517);
-      default:
-        return const Color(0xFF888780);
+      case 'SCR': return const Color(0xFFD4537E);
+      case 'UR':  return const Color(0xFF5340C9);
+      case 'SR':  return const Color(0xFF1D9E75);
+      case 'R':   return const Color(0xFFBA7517);
+      default:    return const Color(0xFF888780);
     }
   }
 }
 
-// Carte dans l'inventaire
 class InventoryCard {
   final int? dbId;
   final int ygoId;
@@ -121,36 +114,32 @@ class InventoryCard {
     this.note,
   });
 
-  Map<String, dynamic> toMap() {
-    return {
-      'ygo_id': ygoId,
-      'name': name,
-      'type': type,
-      'set_code': setCode,
-      'set_name': setName,
-      'rarity': rarity,
-      'rarity_code': rarityCode,
-      'price': price,
-      'image_url': imageUrl,
-      'added_at': addedAt.toIso8601String(),
-      'note': note,
-    };
-  }
+  Map<String, dynamic> toMap() => {
+    'ygo_id': ygoId,
+    'name': name,
+    'type': type,
+    'set_code': setCode,
+    'set_name': setName,
+    'rarity': rarity,
+    'rarity_code': rarityCode,
+    'price': price,
+    'image_url': imageUrl,
+    'added_at': addedAt.toIso8601String(),
+    'note': note,
+  };
 
-  factory InventoryCard.fromMap(Map<String, dynamic> map) {
-    return InventoryCard(
-      dbId: map['id'],
-      ygoId: map['ygo_id'],
-      name: map['name'],
-      type: map['type'],
-      setCode: map['set_code'],
-      setName: map['set_name'],
-      rarity: map['rarity'],
-      rarityCode: map['rarity_code'],
-      price: (map['price'] as num).toDouble(),
-      imageUrl: map['image_url'],
-      addedAt: DateTime.parse(map['added_at']),
-      note: map['note'],
-    );
-  }
+  factory InventoryCard.fromMap(Map<String, dynamic> map) => InventoryCard(
+    dbId: map['id'],
+    ygoId: map['ygo_id'],
+    name: map['name'],
+    type: map['type'],
+    setCode: map['set_code'],
+    setName: map['set_name'],
+    rarity: map['rarity'],
+    rarityCode: map['rarity_code'],
+    price: (map['price'] as num).toDouble(),
+    imageUrl: map['image_url'],
+    addedAt: DateTime.parse(map['added_at']),
+    note: map['note'],
+  );
 }

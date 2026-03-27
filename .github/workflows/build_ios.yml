@@ -25,7 +25,7 @@ jobs:
       - name: Generate iOS project files
         run: flutter create --platforms=ios --org com.hojicooks --project-name ygo_collection .
 
-      - name: Build iOS (simulator)
+      - name: Build iOS (no codesign)
         run: flutter build ios --debug --no-codesign --simulator
 
       - name: Create IPA

@@ -1,10 +1,11 @@
 // lib/screens/scanner_screen.dart
 
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-import 'package:flutter_vision/flutter_vision.dart';
 import '../services/ygo_api_service.dart';
 import '../services/database_service.dart';
+import '../services/ocr_service.dart';
 import '../models/card_model.dart';
 import '../widgets/rarity_picker_sheet.dart';
 import '../widgets/card_result_widget.dart';
@@ -22,16 +23,11 @@ class _ScannerScreenState extends State<ScannerScreen> {
   final _dbService = DatabaseService();
   final _searchController = TextEditingController();
 
-  bool _isScanning = false;
   bool _isCameraReady = false;
   bool _isProcessing = false;
-  String? _lastDetectedCode;
   YgoCard? _foundCard;
   CardVariant? _selectedVariant;
   String? _errorMessage;
-
-  // Regex: LOB-FR001, SDK-FR023, SDMA-FR016...
-  final _setCodeRegex = RegExp(r'\b[A-Z]{2,6}-FR\d{3}\b', caseSensitive: false);
 
   @override
   void initState() {
@@ -42,73 +38,43 @@ class _ScannerScreenState extends State<ScannerScreen> {
   Future<void> _initCamera() async {
     final cameras = await availableCameras();
     if (cameras.isEmpty) return;
-
     _cameraController = CameraController(
       cameras.first,
       ResolutionPreset.high,
       enableAudio: false,
     );
-
     await _cameraController!.initialize();
     if (mounted) setState(() => _isCameraReady = true);
   }
 
-  // Lance le scan OCR sur une image de la caméra
   Future<void> _captureAndScan() async {
-  if (_isProcessing || _cameraController == null) return;
-  setState(() { _isProcessing = true; _errorMessage = null; });
-
-  try {
-    final image = await _cameraController!.takePicture();
-    // OCR via flutter_vision
-    final FlutterVision vision = FlutterVision();
-    await vision.startOcrOnImage(
-      imagePath: image.path,
-      language: 'fra',
-    );
-    final result = await vision.getOcrResult();
-    final text = result.map((r) => r['text']).join(' ');
-    
-    final match = _setCodeRegex.firstMatch(text.toUpperCase());
-    if (match != null) {
-      await _searchCard(match.group(0)!);
-    } else {
-      setState(() => _errorMessage = 'Aucun code de set détecté. Essayez de vous rapprocher.');
-    }
-  } finally {
-    setState(() => _isProcessing = false);
-  }
-}
-
-  // Recherche une carte par code
-  Future<void> _searchCard(String code) async {
-    setState(() {
-      _isProcessing = true;
-      _errorMessage = null;
-      _foundCard = null;
-      _selectedVariant = null;
-    });
-
-    final card = await _apiService.searchBySetCode(code.toUpperCase());
-
-    if (card == null) {
-      setState(() => _errorMessage = 'Carte "$code" non trouvée.');
+    if (_isProcessing || _cameraController == null) return;
+    setState(() { _isProcessing = true; _errorMessage = null; });
+    try {
+      final image = await _cameraController!.takePicture();
+      final code = await OcrService.extractSetCode(File(image.path));
+      if (code != null) {
+        await _searchCard(code);
+      } else {
+        setState(() => _errorMessage = 'Aucun code de set détecté. Essayez de vous rapprocher.');
+      }
+    } finally {
       setState(() => _isProcessing = false);
+    }
+  }
+
+  Future<void> _searchCard(String code) async {
+    setState(() { _isProcessing = true; _errorMessage = null; _foundCard = null; _selectedVariant = null; });
+    final card = await _apiService.searchBySetCode(code.toUpperCase());
+    if (card == null) {
+      setState(() { _errorMessage = 'Carte "$code" non trouvée.'; _isProcessing = false; });
       return;
     }
-
-    // Récupère les prix Cardmarket pour chaque variante
     for (final variant in card.variants) {
       final price = await _apiService.fetchCardmarketPrice(card.name, variant.setCode);
       if (price != null) variant.price = price;
     }
-
-    setState(() {
-      _foundCard = card;
-      _isProcessing = false;
-    });
-
-    // Si une seule rareté → sélection auto, sinon popup
+    setState(() { _foundCard = card; _isProcessing = false; });
     if (card.variants.length == 1) {
       setState(() => _selectedVariant = card.variants.first);
     } else {
@@ -123,17 +89,14 @@ class _ScannerScreenState extends State<ScannerScreen> {
       backgroundColor: Colors.transparent,
       builder: (_) => RarityPickerSheet(
         card: card,
-        onSelected: (variant) {
-          setState(() => _selectedVariant = variant);
-        },
+        onSelected: (v) => setState(() => _selectedVariant = v),
       ),
     );
   }
 
   Future<void> _addToInventory() async {
     if (_foundCard == null || _selectedVariant == null) return;
-
-    final entry = InventoryCard(
+    await _dbService.addCard(InventoryCard(
       ygoId: _foundCard!.id,
       name: _foundCard!.name,
       type: _foundCard!.type,
@@ -144,27 +107,20 @@ class _ScannerScreenState extends State<ScannerScreen> {
       price: _selectedVariant!.price ?? 0,
       imageUrl: _foundCard!.imageUrl,
       addedAt: DateTime.now(),
-    );
-
-    await _dbService.addCard(entry);
-
+    ));
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text('${_foundCard!.name} (${_selectedVariant!.rarity}) ajoutée !'),
         backgroundColor: const Color(0xFF2D7A4F),
         behavior: SnackBarBehavior.floating,
       ));
-      setState(() {
-        _foundCard = null;
-        _selectedVariant = null;
-      });
+      setState(() { _foundCard = null; _selectedVariant = null; });
     }
   }
 
   @override
   void dispose() {
     _cameraController?.dispose();
-    _textRecognizer.close();
     _searchController.dispose();
     super.dispose();
   }
@@ -176,7 +132,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // Viewfinder caméra
             Expanded(
               flex: 2,
               child: Stack(
@@ -190,54 +145,32 @@ class _ScannerScreenState extends State<ScannerScreen> {
                   else
                     Container(
                       margin: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1A1A2E),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: const Center(
-                        child: CircularProgressIndicator(color: Color(0xFF7C6CF5)),
-                      ),
+                      decoration: BoxDecoration(color: const Color(0xFF1A1A2E), borderRadius: BorderRadius.circular(16)),
+                      child: const Center(child: CircularProgressIndicator(color: Color(0xFF7C6CF5))),
                     ),
-                  // Cadre de scan
                   Container(
-                    width: 260,
-                    height: 70,
-                    decoration: BoxDecoration(
-                      border: Border.all(color: const Color(0xFF7C6CF5), width: 2),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+                    width: 260, height: 70,
+                    decoration: BoxDecoration(border: Border.all(color: const Color(0xFF7C6CF5), width: 2), borderRadius: BorderRadius.circular(8)),
                   ),
-                  // Texte hint
                   Positioned(
                     bottom: 30,
-                    child: Text(
-                      'Centrez le code de set (ex: LOB-FR001)',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.7),
-                        fontSize: 12,
-                      ),
-                    ),
+                    child: Text('Centrez le code de set (ex: LOB-FR001)',
+                        style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12)),
                   ),
                 ],
               ),
             ),
-
-            // Contrôles
             Container(
               color: const Color(0xFF0D0D1A),
               padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
-                  // Bouton scan
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
                       onPressed: _isProcessing ? null : _captureAndScan,
                       icon: _isProcessing
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                           : const Icon(Icons.camera_alt),
                       label: Text(_isProcessing ? 'Analyse en cours…' : 'Scanner le code'),
                       style: ElevatedButton.styleFrom(
@@ -248,10 +181,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 10),
-
-                  // Recherche manuelle
                   Row(
                     children: [
                       Expanded(
@@ -260,13 +190,10 @@ class _ScannerScreenState extends State<ScannerScreen> {
                           style: const TextStyle(color: Colors.white),
                           decoration: InputDecoration(
                             hintText: 'Code manuel (ex: LOB-FR001)…',
-                            hintStyle: TextStyle(color: Colors.white38, fontSize: 13),
+                            hintStyle: const TextStyle(color: Colors.white38, fontSize: 13),
                             filled: true,
                             fillColor: const Color(0xFF1A1A2E),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: BorderSide.none,
-                            ),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
                             contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                           ),
                           textCapitalization: TextCapitalization.characters,
@@ -286,16 +213,11 @@ class _ScannerScreenState extends State<ScannerScreen> {
                       ),
                     ],
                   ),
-
-                  // Message d'erreur
                   if (_errorMessage != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 10),
-                      child: Text(_errorMessage!,
-                          style: const TextStyle(color: Color(0xFFE24B4A), fontSize: 13)),
+                      child: Text(_errorMessage!, style: const TextStyle(color: Color(0xFFE24B4A), fontSize: 13)),
                     ),
-
-                  // Résultat de la carte
                   if (_foundCard != null)
                     CardResultWidget(
                       card: _foundCard!,

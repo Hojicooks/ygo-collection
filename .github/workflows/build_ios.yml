@@ -25,13 +25,21 @@ jobs:
       - name: Generate iOS project files
         run: flutter create --platforms=ios --org com.hojicooks --project-name ygo_collection .
 
-      - name: Build iOS (no codesign)
-        run: flutter build ios --debug --no-codesign --simulator
+      - name: Build iOS archive
+        run: |
+          cd ios
+          xcodebuild -workspace Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath build/Runner.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            archive
 
       - name: Create IPA
         run: |
           mkdir -p Payload
-          cp -r build/ios/iphonesimulator/Runner.app Payload/Runner.app
+          cp -r ios/build/Runner.xcarchive/Products/Applications/Runner.app Payload/Runner.app
           zip -r YGOCollection.ipa Payload
           rm -rf Payload
 

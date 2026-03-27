@@ -18,7 +18,7 @@ class ScannerScreen extends StatefulWidget {
 }
 
 class _ScannerScreenState extends State<ScannerScreen> {
-  CameraController? _cameraController;
+  CameraController? _cameraController; 
   final _apiService = YgoApiService();
   final _dbService = DatabaseService();
   final _searchController = TextEditingController();
